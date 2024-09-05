@@ -12,6 +12,11 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserPermission {
+  COMMON
+  ADMIN
+}
+
 model User {
   id            String @id @default(uuid()) @map("_id")
   name          String
@@ -21,11 +26,18 @@ model User {
   // Relacionamento 1:N
   registers Register[]
 
+  // Definindo a permissão do usuário como enum
+  user_permission UserPermission @default(COMMON)
+  // Relacionamento N:N simulando com IDs - Um usuário pode acessar várias salas
+  // Armazena os ObjectIds das salas permitidas
+  permited_room_ids String[]
+
   @@map("users")
 }
 
 model Room {
   id              String            @id @default(uuid()) @map("_id")
+  name            String
   // Relacionamento 1:N
   airconditioners AirConditioning[]
   doors           Door[]
