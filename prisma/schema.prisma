@@ -1,7 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
@@ -19,5 +18,54 @@ model User {
   email         String @unique
   password_hash String
 
+  // Relacionamento 1:N
+  registers     Register[]
+
   @@map("users")
+}
+
+model Room {
+  id            String @id @default(uuid())
+  // Relacionamento 1:N
+  airconditioners     AirConditioning[]
+
+  @@map("rooms")
+}
+
+model Door {
+  id String @id @default(uuid())
+  activated Boolean @default(false)
+
+  @@map("doors")
+}
+
+model Light {
+  id String @id @default(uuid())
+  activated Boolean @default(false)
+
+  @@map("lights")
+}
+
+model AirConditioning {
+  id String @id @default(uuid())
+  activated Boolean @default(false)
+
+  // Chave estrangeira
+  roomId           String
+  // Relacionamento 1:N com Room
+  room             Room     @relation(fields: [roomId], references: [id])
+
+  @@map("airconditioners")
+}
+
+model Register {
+  id String @id @default(uuid())
+  modificationDate DateTime @default(now())
+
+  // Chave estrangeira
+  userId           String
+  // Relacionamento 1:N com User
+  user             User     @relation(fields: [userId], references: [id])
+
+  @@map("registers")
 }
