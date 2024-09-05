@@ -1,6 +1,11 @@
 import { PrismaClient } from "@prisma/client";
-import fastify from "fastify";
+import fastify, {
+  FastifyReply,
+  FastifyRequest,
+  HookHandlerDoneFunction,
+} from "fastify";
 import bcrypt from "bcrypt";
+import jsonwebtoken from "jsonwebtoken";
 
 export const app = fastify();
 
@@ -43,5 +48,79 @@ app.post("/user-register", async (req, res) => {
   } catch (error) {
     console.error(error);
     return res.status(500).send({ message: "Internal server error" });
+  }
+});
+
+app.post("/user-login", async (req, res) => {
+  try {
+    const { email, password } = req.body as {
+      email: string;
+      password: string;
+    };
+
+    const user = await prisma.user.findUnique({
+      where: {
+        email,
+      },
+    });
+
+    if (user) {
+      const passwordMatch = await bcrypt.compare(password, user.password_hash);
+
+      const { password_hash, ...rest } = user;
+
+      if (passwordMatch) {
+        const token = jsonwebtoken.sign(
+          {
+            user,
+          },
+          process.env.PRIVATE_KEY,
+          { expiresIn: "60min" }
+        );
+
+        return res.status(200).send({ user: rest, token });
+      }
+
+      return res.status(404).send({ message: "Verifique as credenciais" });
+    } else {
+      return res.status(404).send({ message: "Verifique as credenciais" });
+    }
+  } catch (error) {
+    console.error(error);
+    return res.status(500).send({ message: "Internal server error" });
+  }
+});
+
+const verifyToken = (
+  req: FastifyRequest,
+  reply: FastifyReply,
+  done: HookHandlerDoneFunction
+) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(" ")[1];
+
+    if (!token) {
+      return reply.status(401).send({ message: "Token inválido" });
+    }
+
+    jsonwebtoken.verify(token, process.env.PRIVATE_KEY, (err, user) => {
+      if (err) {
+        return reply.status(403).send({ message: "token inválido" });
+      }
+
+      done();
+    });
+  } catch (error) {
+    return reply.status(500).send({ message: "falha na validação de token" });
+  }
+};
+
+app.get("/teste", { preHandler: verifyToken }, (req, res) => {
+  try {
+    return res.status(200).send({ message: "ok 👍" });
+  } catch (error) {
+    console.error(error);
+    return res.status(404).send({ message: "não ok ❌" });
   }
 });
