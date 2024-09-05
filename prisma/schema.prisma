@@ -8,7 +8,7 @@ generator client {
 }
 
 datasource db {
-  provider = "mongodb" // **************** SUBSTITUIR PELO MONGODB ****************
+  provider = "mongodb"
   url      = env("DATABASE_URL")
 }
 
@@ -25,7 +25,7 @@ model User {
 }
 
 model Room {
-  id              String            @id @default(uuid())
+  id              String            @id @default(uuid()) @map("_id")
   // Relacionamento 1:N
   airconditioners AirConditioning[]
   doors           Door[]
@@ -35,7 +35,7 @@ model Room {
 }
 
 model Door {
-  id        String  @id @default(uuid())
+  id        String  @id @default(uuid()) @map("_id")
   activated Boolean @default(false)
 
   // Chave estrangeira
@@ -47,7 +47,7 @@ model Door {
 }
 
 model Light {
-  id        String  @id @default(uuid())
+  id        String  @id @default(uuid()) @map("_id")
   activated Boolean @default(false)
 
   // Chave estrangeira
@@ -59,7 +59,7 @@ model Light {
 }
 
 model AirConditioning {
-  id        String  @id @default(uuid())
+  id        String  @id @default(uuid()) @map("_id")
   activated Boolean @default(false)
 
   // Chave estrangeira
@@ -71,8 +71,8 @@ model AirConditioning {
 }
 
 model Register {
-  id               String   @id @default(uuid())
-  modificationDate DateTime @default(now())
+  id               String   @id @default(uuid()) @map("_id")
+  modificationDate DateTime
 
   // Chave estrangeira
   userId String
