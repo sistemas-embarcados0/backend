@@ -104,11 +104,24 @@ const verifyToken = (
       return reply.status(401).send({ message: "Token inválido" });
     }
 
-    jsonwebtoken.verify(token, process.env.PRIVATE_KEY, (err, user) => {
+    jsonwebtoken.verify(token, process.env.PRIVATE_KEY, (err, decoded) => {
       if (err) {
         return reply.status(403).send({ message: "token inválido" });
       }
 
+      // Extraindo o campo user do token decodificado
+      const { user } = decoded as { 
+        user: { 
+          id: string; 
+          name: string;
+          email: string
+        } 
+      };
+
+      console.log(user);
+      // Armazena o usuário decodificado no objeto req
+      req.user = user;
+      
       done();
     });
   } catch (error) {
@@ -122,5 +135,48 @@ app.get("/teste", { preHandler: verifyToken }, (req, res) => {
   } catch (error) {
     console.error(error);
     return res.status(404).send({ message: "não ok ❌" });
+  }
+});
+
+
+// Rota POST para solicitar acesso às salas, com verificação de token
+app.post("/request-access", { preHandler: verifyToken }, async (req, res) => {
+  try {
+    const { roomIds } = req.body as { roomIds: string[] };
+    
+    // Resgata o user
+    const user = req.user;
+
+    if (!user) {
+      return res.status(404).send({ message: "Usuário não encontrado" });
+    }
+
+    // Verificar se o usuário é do tipo COMMON
+    if (user.user_permission !== 'COMMON') {
+      return res.status(403).send(
+        { message: "Acesso negado. Apenas usuários COMMON podem solicitar acesso." }
+      );
+    }
+
+    // Atualizar o campo permited_room_ids com as novas salas solicitadas
+    // sem duplicar
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        permited_room_ids: {
+          // Evitar duplicatas
+          set: [...new Set([...user.permited_room_ids, ...roomIds])], 
+        },
+      },
+    });
+
+    return res.status(200).send(
+      { message: "Acesso solicitado com sucesso", updatedUser }
+    );
+  } catch (error) {
+    console.error(error);
+    return res.status(500).send(
+      { message: "Erro ao solicitar acesso" }
+    );
   }
 });
