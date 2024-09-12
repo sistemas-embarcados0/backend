@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -28,11 +23,12 @@ model User {
 
   // Definindo a permissão do usuário como enum
   user_permission UserPermission @default(COMMON)
-  // Relacionamento N:N simulando com IDs - Um usuário pode acessar várias salas
-  // Armazena os ObjectIds das salas permitidas
-  permited_room_ids String[]
+
+  // Relacionamento N:N com Room através de UserRoomAccess
+  access_rooms UserRoomAccess[]
 
   @@map("users")
+  AccessRequest AccessRequest[]
 }
 
 model Room {
@@ -43,7 +39,22 @@ model Room {
   doors           Door[]
   lights          Light[]
 
+  // Relacionamento N:N com User através de UserRoomAccess
+  access_users UserRoomAccess[]
+
   @@map("rooms")
+}
+
+model UserRoomAccess {
+  id     String @id @default(uuid()) @map("_id")
+  userId String
+  roomId String
+
+  // Relacionamentos com User e Room
+  user   User   @relation(fields: [userId], references: [id])
+  room   Room   @relation(fields: [roomId], references: [id])
+
+  @@map("user_room_access")
 }
 
 model Door {
@@ -52,7 +63,6 @@ model Door {
 
   // Chave estrangeira
   roomId String
-  // Relacionamento 1:N com Room
   room   Room   @relation(fields: [roomId], references: [id])
 
   @@map("doors")
@@ -64,7 +74,6 @@ model Light {
 
   // Chave estrangeira
   roomId String
-  // Relacionamento 1:N com Room
   room   Room   @relation(fields: [roomId], references: [id])
 
   @@map("lights")
@@ -76,7 +85,6 @@ model AirConditioning {
 
   // Chave estrangeira
   roomId String
-  // Relacionamento 1:N com Room
   room   Room   @relation(fields: [roomId], references: [id])
 
   @@map("airconditioners")
@@ -88,8 +96,26 @@ model Register {
 
   // Chave estrangeira
   userId String
-  // Relacionamento 1:N com User
   user   User   @relation(fields: [userId], references: [id])
 
   @@map("registers")
+}
+
+model AccessRequest {
+  id        String   @id @default(uuid()) @map("_id")
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  roomIds   String[] // Considerar um relacionamento com Room também, se necessário
+
+  status    RequestStatus @default(PENDING)
+  createdAt DateTime @default(now())
+
+  @@map("access_requests")
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }

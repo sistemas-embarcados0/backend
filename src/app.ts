@@ -138,8 +138,7 @@ app.get("/teste", { preHandler: verifyToken }, (req, res) => {
   }
 });
 
-
-// Rota POST para solicitar acesso às salas, com verificação de token
+// Rota POST para solicitar acesso às salas
 app.post("/request-access", { preHandler: verifyToken }, async (req, res) => {
   try {
     const { roomIds } = req.body as { roomIds: string[] };
@@ -158,25 +157,86 @@ app.post("/request-access", { preHandler: verifyToken }, async (req, res) => {
       );
     }
 
-    // Atualizar o campo permited_room_ids com as novas salas solicitadas
-    // sem duplicar
-    const updatedUser = await prisma.user.update({
-      where: { id: user.id },
+    // Criar uma solicitação de acesso
+    const accessRequest = await prisma.accessRequest.create({
       data: {
-        permited_room_ids: {
-          // Evitar duplicatas
-          set: [...new Set([...user.permited_room_ids, ...roomIds])], 
-        },
+        userId: user.id,
+        roomIds: roomIds,
+        status: 'PENDING',
       },
     });
 
-    return res.status(200).send(
-      { message: "Acesso solicitado com sucesso", updatedUser }
-    );
+    return res.status(200).send({ 
+      message: "Solicitação criada com sucesso", accessRequest 
+    });
   } catch (error) {
     console.error(error);
-    return res.status(500).send(
-      { message: "Erro ao solicitar acesso" }
-    );
+    return res.status(500).send({ message: "Erro ao solicitar acesso" });
+  }
+});
+
+// Rota POST para o administrador aprovar ou rejeitar solicitações
+app.post("/approve-request", { preHandler: verifyToken }, async (req, res) => {
+  try {
+    const { requestId, approved } = req.body as { 
+      requestId: string, approved: boolean 
+    };
+
+    // Resgata o user
+    const user = req.user;
+
+    if (!user) {
+      return res.status(404).send({ message: "Usuário não encontrado" });
+    }
+
+    // Verificar se o usuário é do tipo ADMIN
+    if (user.user_permission !== 'ADMIN') {
+      return res.status(403).send({ 
+        message: "Acesso negado. Apenas administradores podem aprovar solicitações." 
+      });
+    }
+
+    // Buscar a solicitação de acesso
+    const request = await prisma.accessRequest.findUnique({
+      where: { id: requestId },
+      include: { user: true },
+    });
+
+    if (!request) {
+      return res.status(404).send({ message: "Solicitação não encontrada" });
+    }
+
+    if (approved) {
+      // Atualizar o usuário com as salas permitidas
+      await prisma.user.update({
+        where: { id: request.userId },
+        data: {
+          permited_room_ids: {
+            set: [...new Set(
+              [...request.user.permited_room_ids, ...request.roomIds]
+            )],
+          },
+        },
+      });
+
+      // Atualizar o status da solicitação para aprovada
+      await prisma.accessRequest.update({
+        where: { id: requestId },
+        data: { status: 'APPROVED' },
+      });
+
+      return res.status(200).send({ message: "Solicitação aprovada com sucesso" });
+    } else {
+      // Atualizar o status da solicitação para rejeitada
+      await prisma.accessRequest.update({
+        where: { id: requestId },
+        data: { status: 'REJECTED' },
+      });
+
+      return res.status(200).send({ message: "Solicitação rejeitada" });
+    }
+  } catch (error) {
+    console.error(error);
+    return res.status(500).send({ message: "Erro ao processar solicitação" });
   }
 });
