@@ -26,9 +26,9 @@ model User {
 
   // Relacionamento N:N com Room através de UserRoomAccess
   access_rooms UserRoomAccess[]
+  AccessRequest AccessRequest[]
 
   @@map("users")
-  AccessRequest AccessRequest[]
 }
 
 model Room {
