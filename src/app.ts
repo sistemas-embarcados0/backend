@@ -215,3 +215,74 @@ app.post("/admin/approve-request", async (req, res) => {
     return res.status(500).send({ message: "Erro ao processar solicitação de acesso" });
   }
 });
+
+// Rota POST para mudar o estado da luz
+app.post(
+  "/room/:roomId/light/:lightId/toggle", 
+  { preHandler: verifyToken }, 
+  async (req, res) => {
+    try {
+      const { roomId, lightId } = req.params;
+      const user = req.user;
+
+      if (!user) {
+        return res.status(404).send({ message: "Usuário não encontrado" });
+      }
+
+      // Verifica se o usuário é ADMIN
+      if (user.user_permission === 'ADMIN') {
+        // Usuário ADMIN pode alterar o estado da luz diretamente
+        const light = await prisma.light.findUnique({
+          where: { id: lightId },
+        });
+
+        if (!light) {
+          return res.status(404).send({ message: "Luz não encontrada" });
+        }
+
+        const updatedLight = await prisma.light.update({
+          where: { id: lightId },
+          data: { activated: !light.activated },
+        });
+
+        return res.status(200).send({ 
+          message: "Estado da luz alterado", 
+          light: updatedLight 
+        });
+      } else {
+        // Verifica se o usuário COMMON tem acesso à sala
+        const access = await prisma.userRoomAccess.findFirst({
+          where: {
+            userId: user.id,
+            roomId,
+          },
+        });
+
+        if (!access) {
+          return res.status(403).send({ message: "Acesso negado a esta sala" });
+        }
+
+        const light = await prisma.light.findUnique({
+          where: { id: lightId },
+        });
+
+        if (!light) {
+          return res.status(404).send({ message: "Luz não encontrada" });
+        }
+
+        const updatedLight = await prisma.light.update({
+          where: { id: lightId },
+          data: { activated: !light.activated },
+        });
+
+        return res.status(200).send({ 
+          message: "Estado da luz alterado", light: updatedLight 
+        });
+      }
+    } catch (error) {
+      console.error(error);
+      return res.status(500).send({ message: "Erro ao alterar o estado da luz" });
+    }
+  }
+);
+
