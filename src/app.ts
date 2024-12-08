@@ -403,7 +403,13 @@ app.post("/request-access", { preHandler: verifyToken }, async (req, res) => {
 app.get("/list-rooms", { preHandler: verifyToken }, async (req, res) => {
   try {
     // Buscar todas as salas
-    const existingRooms = await prisma.room.findMany();
+    const existingRooms = await prisma.room.findMany({
+      include: {
+        airconditioners: true,
+        doors: true,
+        lights: true,
+      },
+    });
 
     return res.status(200).send({ rooms: existingRooms });
   } catch (error) {
@@ -412,7 +418,7 @@ app.get("/list-rooms", { preHandler: verifyToken }, async (req, res) => {
   }
 });
 
-app.post("/create-room", { preHandler: verifyToken }, async (req, res) => {
+app.post("/create-room", { preHandler: verifyAdminToken }, async (req, res) => {
   try {
     const { name } = req.body;
     const requestingUser = req.user;
@@ -504,6 +510,408 @@ app.delete(
       return res.status(200).send({ message: "Sala deletada com sucesso!" });
     } catch (error) {
       console.error("Erro ao deletar sala:", error);
+      return res.status(500).send({ message: "Internal server error" });
+    }
+  }
+);
+
+// ROTAS DO AR-CONDICIONADO
+
+app.get(
+  "/list-airconditioner/:id",
+  { preHandler: verifyToken },
+  async (req, res) => {
+    try {
+      const airconditionerId = req.params?.id ?? "";
+
+      if (!airconditionerId) {
+        return res
+          .status(400)
+          .send({ message: "O ID do ar-condicionado é obrigatório." });
+      }
+
+      // Verificar se a sala existe
+      const airConditioner = await prisma.airConditioning.findUnique({
+        where: { id: airconditionerId },
+      });
+      if (!airConditioner) {
+        return res
+          .status(404)
+          .send({ message: "Ar-condicionado não encontrado." });
+      }
+
+      return res.status(201).send({
+        airConditioner,
+      });
+    } catch (error) {
+      console.error("Erro ao buscar ar-condicionado:", error);
+      return res.status(500).send({ message: "Internal server error" });
+    }
+  }
+);
+
+app.post(
+  "/create-airconditioner",
+  { preHandler: verifyAdminToken },
+  async (req, res) => {
+    try {
+      const roomId = req.body?.roomId ?? "";
+
+      if (!roomId) {
+        return res.status(400).send({ message: "O ID da sala é obrigatório." });
+      }
+
+      // Verificar se a sala existe
+      const room = await prisma.room.findUnique({ where: { id: roomId } });
+      if (!room) {
+        return res.status(404).send({ message: "Sala não encontrada." });
+      }
+
+      const airConditioner = await prisma.airConditioning.create({
+        data: {
+          roomId,
+          activated: false,
+        },
+      });
+
+      return res.status(201).send({
+        message: "Ar-condicionado criado com sucesso!",
+        airConditioner,
+      });
+    } catch (error) {
+      console.error("Erro ao criar ar-condicionado:", error);
+      return res.status(500).send({ message: "Internal server error" });
+    }
+  }
+);
+
+app.put(
+  "/update-airconditioner/:id",
+  { preHandler: verifyAdminToken },
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const status = req.body?.status ?? false;
+
+      if (!id) {
+        return res
+          .status(404)
+          .send({ message: "O ID do ar-condicionado é obrigatório." });
+      }
+
+      // Verificar se o ar-condicionado existe
+      const airConditioner = await prisma.airConditioning.findUnique({
+        where: { id },
+      });
+      if (!airConditioner) {
+        return res
+          .status(404)
+          .send({ message: "Ar-condicionado não encontrado." });
+      }
+
+      // Atualizar ar-condicionado
+      const updatedAirConditioner = await prisma.airConditioning.update({
+        where: { id },
+        data: { activated: status },
+      });
+
+      return res.status(200).send({
+        message: "Ar-condicionado atualizado com sucesso!",
+        airConditioner: updatedAirConditioner,
+      });
+    } catch (error) {
+      console.error("Erro ao atualizar ar-condicionado:", error);
+      return res.status(500).send({ message: "Internal server error" });
+    }
+  }
+);
+
+app.delete(
+  "/delete-airconditioner/:id",
+  { preHandler: verifyAdminToken },
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      if (!id) {
+        return res
+          .status(404)
+          .send({ message: "O ID do ar-condicionado é obrigatório." });
+      }
+
+      // Verificar se o ar-condicionado existe
+      const airConditioner = await prisma.airConditioning.findUnique({
+        where: { id },
+      });
+      if (!airConditioner) {
+        return res
+          .status(404)
+          .send({ message: "Ar-condicionado não encontrado." });
+      }
+
+      // Deletar ar-condicionado
+      await prisma.airConditioning.delete({ where: { id } });
+
+      return res
+        .status(200)
+        .send({ message: "Ar-condicionado deletado com sucesso!" });
+    } catch (error) {
+      console.error("Erro ao deletar ar-condicionado:", error);
+      return res.status(500).send({ message: "Internal server error" });
+    }
+  }
+);
+
+// ROTAS DA PORTA
+
+app.get("/list-door/:id", { preHandler: verifyToken }, async (req, res) => {
+  try {
+    const doorId = req.params?.id ?? "";
+
+    if (!doorId) {
+      return res.status(400).send({ message: "O ID da porta é obrigatório." });
+    }
+
+    // Verificar se a sala existe
+    const door = await prisma.door.findUnique({
+      where: { id: doorId },
+    });
+    if (!door) {
+      return res.status(404).send({ message: "Porta não encontrada." });
+    }
+
+    return res.status(201).send({
+      door,
+    });
+  } catch (error) {
+    console.error("Erro ao buscar a porta", error);
+    return res.status(500).send({ message: "Internal server error" });
+  }
+});
+
+app.post("/create-door", { preHandler: verifyAdminToken }, async (req, res) => {
+  try {
+    const roomId = req.body?.roomId ?? "";
+
+    if (!roomId) {
+      return res.status(400).send({ message: "O ID da sala é obrigatório." });
+    }
+
+    // Verificar se a sala existe
+    const room = await prisma.room.findUnique({ where: { id: roomId } });
+    if (!room) {
+      return res.status(404).send({ message: "Sala não encontrada." });
+    }
+
+    const door = await prisma.door.create({
+      data: {
+        roomId,
+        activated: false,
+      },
+    });
+
+    return res.status(201).send({
+      message: "Porta criada com sucesso!",
+      door,
+    });
+  } catch (error) {
+    console.error("Erro ao criar porta:", error);
+    return res.status(500).send({ message: "Internal server error" });
+  }
+});
+
+app.put(
+  "/update-door/:id",
+  { preHandler: verifyAdminToken },
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const status = req.body?.status ?? false;
+
+      if (!id) {
+        return res
+          .status(404)
+          .send({ message: "O ID da porta é obrigatório." });
+      }
+
+      const door = await prisma.door.findUnique({
+        where: { id },
+      });
+      if (!door) {
+        return res.status(404).send({ message: "Porta não encontrada." });
+      }
+
+      const updatedDoor = await prisma.door.update({
+        where: { id },
+        data: { activated: status },
+      });
+
+      return res.status(200).send({
+        message: "Porta atualizada com sucesso!",
+        airConditioner: updatedDoor,
+      });
+    } catch (error) {
+      console.error("Erro ao atualizar porta:", error);
+      return res.status(500).send({ message: "Internal server error" });
+    }
+  }
+);
+app.delete(
+  "/delete-door/:id",
+  { preHandler: verifyAdminToken },
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      if (!id) {
+        return res
+          .status(404)
+          .send({ message: "O ID da porta é obrigatório." });
+      }
+
+      const door = await prisma.door.findUnique({
+        where: { id },
+      });
+      if (!door) {
+        return res.status(404).send({ message: "Porta não encontrada." });
+      }
+
+      await prisma.door.delete({ where: { id } });
+
+      return res.status(200).send({ message: "Porta deletada com sucesso!" });
+    } catch (error) {
+      console.error("Erro ao deletar porta:", error);
+      return res.status(500).send({ message: "Internal server error" });
+    }
+  }
+);
+
+// ROTAS DA Lampada
+
+app.get("/list-light/:id", { preHandler: verifyToken }, async (req, res) => {
+  try {
+    const lightId = req.params?.id ?? "";
+
+    if (!lightId) {
+      return res
+        .status(400)
+        .send({ message: "O ID da lampada é obrigatório." });
+    }
+
+    // Verificar se a sala existe
+    const light = await prisma.light.findUnique({
+      where: { id: lightId },
+    });
+    if (!light) {
+      return res.status(404).send({ message: "Lampada não encontrada." });
+    }
+
+    return res.status(201).send({
+      light,
+    });
+  } catch (error) {
+    console.error("Erro ao buscar a lampada", error);
+    return res.status(500).send({ message: "Internal server error" });
+  }
+});
+
+app.post(
+  "/create-light",
+  { preHandler: verifyAdminToken },
+  async (req, res) => {
+    console.log("Rota /create-light acionada");
+    try {
+      const roomId = req.body?.roomId ?? "";
+
+      if (!roomId) {
+        return res.status(400).send({ message: "O ID da sala é obrigatório." });
+      }
+
+      // Verificar se a sala existe
+      const room = await prisma.room.findUnique({ where: { id: roomId } });
+      if (!room) {
+        return res.status(404).send({ message: "Sala não encontrada." });
+      }
+
+      const light = await prisma.light.create({
+        data: {
+          roomId,
+          activated: false,
+        },
+      });
+
+      return res.status(201).send({
+        message: "Lampada criada com sucesso!",
+        light,
+      });
+    } catch (error) {
+      console.error("Erro ao criar lampada:", error);
+      return res.status(500).send({ message: "Internal server error" });
+    }
+  }
+);
+
+app.put(
+  "/update-light/:id",
+  { preHandler: verifyAdminToken },
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const status = req.body?.status ?? false;
+
+      if (!id) {
+        return res
+          .status(404)
+          .send({ message: "O ID da lampada é obrigatório." });
+      }
+
+      const light = await prisma.light.findUnique({
+        where: { id },
+      });
+      if (!light) {
+        return res.status(404).send({ message: "Lampada não encontrada." });
+      }
+
+      const updatedLight = await prisma.light.update({
+        where: { id },
+        data: { activated: status },
+      });
+
+      return res.status(200).send({
+        message: "Lampda atualizada com sucesso!",
+        airConditioner: updatedLight,
+      });
+    } catch (error) {
+      console.error("Erro ao atualizar lampada:", error);
+      return res.status(500).send({ message: "Internal server error" });
+    }
+  }
+);
+app.delete(
+  "/delete-light/:id",
+  { preHandler: verifyAdminToken },
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      if (!id) {
+        return res
+          .status(404)
+          .send({ message: "O ID da lampada é obrigatório." });
+      }
+
+      const light = await prisma.light.findUnique({
+        where: { id },
+      });
+      if (!light) {
+        return res.status(404).send({ message: "Lampada não encontrada." });
+      }
+
+      await prisma.light.delete({ where: { id } });
+
+      return res.status(200).send({ message: "Lampada deletada com sucesso!" });
+    } catch (error) {
+      console.error("Erro ao deletar lampada:", error);
       return res.status(500).send({ message: "Internal server error" });
     }
   }
