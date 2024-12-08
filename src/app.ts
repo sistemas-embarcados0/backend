@@ -17,18 +17,159 @@ app.register(fastifyWebsocket);
 app.register(async function (app) {
   const connectedSockets = new Map(); // Map para associar sockets a roles
 
-  // Defina a rota HTTP para controle de LED no nível do aplicativo
-  app.post("/led", { preHandler: verifyToken }, async (req, res) => {
-    const { command } = req.body;
-    if (command === "ligar" || command === "desligar") {
+  app.post(
+    "/airconditioner/:roomId",
+    { preHandler: verifyToken },
+    async (req, res) => {
+      try {
+        console.log(req.params);
+        const command = req.body?.command ?? "";
+        const { roomId } = req.params;
+
+        if (!command || (command !== "ligar" && command !== "desligar")) {
+          return res
+            .status(400)
+            .send({ message: "Comando inválido. Use 'ligar' ou 'desligar'." });
+        }
+
+        if (!roomId) {
+          return res
+            .status(400)
+            .send({ message: "O ID da sala é obrigatório." });
+        }
+
+        const activated = command === "ligar";
+
+        // Verificar se a sala existe
+        const roomExists = await prisma.room.findUnique({
+          where: { id: roomId },
+        });
+
+        if (!roomExists) {
+          return res.status(404).send({ message: "Sala não encontrada." });
+        }
+
+        // Enviar comando via WebSocket para os esps de ar-condicionado
+        connectedSockets.forEach((role, socket) => {
+          if (role === "arcondicionado") {
+            socket.send(activated ? "ligar" : "desligar");
+          }
+        });
+
+        // Atualizar apenas o status do ar-condicionado da sala especificada
+        const updatedAirConditioners = await prisma.airConditioning.updateMany({
+          where: { roomId },
+          data: {
+            activated,
+          },
+        });
+
+        return res.status(200).send({
+          message: `Comando '${command}' enviado e ${updatedAirConditioners.count} ar-condicionado(s) atualizado(s) na sala ${roomId}.`,
+        });
+      } catch (error) {
+        console.error(
+          "Erro ao enviar comando e atualizar ar-condicionados:",
+          error
+        );
+        return res.status(500).send({ message: "Internal server error" });
+      }
+    }
+  );
+
+  app.post("/door/:roomId", { preHandler: verifyToken }, async (req, res) => {
+    try {
+      const command = req.body?.command ?? "";
+      const { roomId } = req.params;
+
+      if (!command || (command !== "abrir" && command !== "fechar")) {
+        return res
+          .status(400)
+          .send({ message: "Comando inválido. Use 'abrir' ou 'fechar'." });
+      }
+
+      if (!roomId) {
+        return res.status(400).send({ message: "O ID da sala é obrigatório." });
+      }
+
+      const activated = command === "abrir";
+
+      const roomExists = await prisma.room.findUnique({
+        where: { id: roomId },
+      });
+
+      if (!roomExists) {
+        return res.status(404).send({ message: "Sala não encontrada." });
+      }
+
       connectedSockets.forEach((role, socket) => {
-        if (role === "arcondicionado") {
-          socket.send(command === "ligar" ? "ligarLED" : "desligarLED");
+        if (role === "porta") {
+          socket.send(activated ? "abrir" : "fechar");
         }
       });
-      return res.status(200).send({ message: `Comando ${command} enviado!` });
+
+      // Atualizar o status das portas da sala especificada
+      const updatedDoors = await prisma.door.updateMany({
+        where: { roomId },
+        data: {
+          activated,
+        },
+      });
+
+      return res.status(200).send({
+        message: `Comando '${command}' enviado e ${updatedDoors.count} porta(s) atualizada(s) na sala ${roomId}.`,
+      });
+    } catch (error) {
+      console.error("Erro ao enviar comando e atualizar portas:", error);
+      return res.status(500).send({ message: "Internal server error" });
     }
-    return res.status(400).send({ message: "Comando inválido." });
+  });
+
+  app.post("/light/:roomId", { preHandler: verifyToken }, async (req, res) => {
+    try {
+      const command = req.body?.command ?? "";
+      const { roomId } = req.params;
+
+      if (!command || (command !== "ligar" && command !== "desligar")) {
+        return res
+          .status(400)
+          .send({ message: "Comando inválido. Use 'ligar' ou 'desligar'." });
+      }
+
+      if (!roomId) {
+        return res.status(400).send({ message: "O ID da sala é obrigatório." });
+      }
+
+      const activated = command === "ligar";
+
+      const roomExists = await prisma.room.findUnique({
+        where: { id: roomId },
+      });
+
+      if (!roomExists) {
+        return res.status(404).send({ message: "Sala não encontrada." });
+      }
+
+      connectedSockets.forEach((role, socket) => {
+        if (role === "lampada") {
+          socket.send(activated ? "ligar" : "desligar");
+        }
+      });
+
+      const updatedLights = await prisma.light.updateMany({
+        where: { roomId },
+        data: {
+          activated,
+        },
+      });
+
+      return res.status(200).send({
+        message: `Comando '${command}' enviado e ${updatedLights.count} lâmpada(s) atualizada(s) na sala ${roomId}.`,
+      });
+    } catch (error) {
+      console.error("Erro ao enviar comando e atualizar lâmpadas:", error);
+      return res.status(500).send({ message: "Internal server error" });
+    }
   });
 
   // Defina a rota WebSocket
@@ -916,3 +1057,53 @@ app.delete(
     }
   }
 );
+
+// ROTA DE STATUS DA SALA
+
+app.get("/room-status/:id", { preHandler: verifyToken }, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).send({ message: "O ID da sala é obrigatório." });
+    }
+
+    const roomStatus = await prisma.room.findUnique({
+      where: { id },
+      include: {
+        airconditioners: true,
+        doors: true,
+        lights: true,
+      },
+    });
+
+    if (!roomStatus) {
+      return res.status(404).send({ message: "Sala não encontrada." });
+    }
+
+    const formattedStatus = {
+      roomId: roomStatus.id,
+      roomName: roomStatus.name,
+      airconditioners: roomStatus.airconditioners.map((ac) => ({
+        id: ac.id,
+        activated: ac.activated,
+      })),
+      doors: roomStatus.doors.map((door) => ({
+        id: door.id,
+        activated: door.activated,
+      })),
+      lights: roomStatus.lights.map((light) => ({
+        id: light.id,
+        activated: light.activated,
+      })),
+    };
+
+    return res.status(200).send({
+      message: "Status da sala recuperado com sucesso!",
+      status: formattedStatus,
+    });
+  } catch (error) {
+    console.error("Erro ao buscar o status da sala:", error);
+    return res.status(500).send({ message: "Internal server error" });
+  }
+});
