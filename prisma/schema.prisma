@@ -25,7 +25,7 @@ model User {
   user_permission UserPermission @default(COMMON)
 
   // Relacionamento N:N com Room através de UserRoomAccess
-  access_rooms UserRoomAccess[]
+  access_rooms  UserRoomAccess[]
   AccessRequest AccessRequest[]
 
   @@map("users")
@@ -33,7 +33,7 @@ model User {
 
 model Room {
   id              String            @id @default(uuid()) @map("_id")
-  name            String
+  name            String            @unique
   // Relacionamento 1:N
   airconditioners AirConditioning[]
   doors           Door[]
@@ -51,8 +51,8 @@ model UserRoomAccess {
   roomId String
 
   // Relacionamentos com User e Room
-  user   User   @relation(fields: [userId], references: [id])
-  room   Room   @relation(fields: [roomId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+  room Room @relation(fields: [roomId], references: [id])
 
   @@map("user_room_access")
 }
@@ -102,14 +102,14 @@ model Register {
 }
 
 model AccessRequest {
-  id        String   @id @default(uuid()) @map("_id")
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  id     String @id @default(uuid()) @map("_id")
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
-  roomIds   String[] // Considerar um relacionamento com Room também, se necessário
+  roomIds String[] // Considerar um relacionamento com Room também, se necessário
 
   status    RequestStatus @default(PENDING)
-  createdAt DateTime @default(now())
+  createdAt DateTime      @default(now())
 
   @@map("access_requests")
 }

@@ -94,6 +94,34 @@ const verifyToken = (
   }
 };
 
+// PreHandler para verificar permissão ADMIN
+const verifyAdminToken = async (
+  req: FastifyRequest,
+  reply: FastifyReply,
+  done: HookHandlerDoneFunction
+) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(" ")[1];
+    if (!token) return reply.status(401).send({ message: "Token inválido" });
+
+    jsonwebtoken.verify(token, process.env.PRIVATE_KEY, (err, decoded) => {
+      if (err) return reply.status(403).send({ message: "Token inválido" });
+      req.user = (decoded as { user: FastifyRequest["user"] }).user;
+
+      if (req.user?.user_permission !== "ADMIN") {
+        return reply
+          .status(403)
+          .send({ message: "Ação permitida apenas para administradores." });
+      }
+
+      done();
+    });
+  } catch (error) {
+    return reply.status(500).send({ message: "Falha na validação de token" });
+  }
+};
+
 app.get("/", (req, res) => {
   return res.status(200).send({ message: "salve!" });
 });
@@ -369,3 +397,114 @@ app.post("/request-access", { preHandler: verifyToken }, async (req, res) => {
     return res.status(403).send({ message: "Acesso negado" });
   res.send({ message: "ok 👍" });
 });
+
+// ROTAS DA SALA
+
+app.get("/list-rooms", { preHandler: verifyToken }, async (req, res) => {
+  try {
+    // Buscar todas as salas
+    const existingRooms = await prisma.room.findMany();
+
+    return res.status(200).send({ rooms: existingRooms });
+  } catch (error) {
+    console.error("Erro ao buscar salas:", error);
+    return res.status(500).send({ message: "Internal server error" });
+  }
+});
+
+app.post("/create-room", { preHandler: verifyToken }, async (req, res) => {
+  try {
+    const { name } = req.body;
+    const requestingUser = req.user;
+
+    if (requestingUser?.user_permission !== "ADMIN") {
+      return res
+        .status(403)
+        .send({ message: "Ação permitida apenas para administradores." });
+    }
+
+    if (!name) {
+      return res.status(404).send({ message: "Informe um nome para a sala." });
+    }
+
+    const createdRoom = await prisma.room.create({
+      data: {
+        name,
+      },
+    });
+
+    return res.status(200).send({ room: createdRoom });
+  } catch (error) {
+    console.error("Erro ao buscar salas:", error);
+    return res.status(500).send({ message: "Internal server error" });
+  }
+});
+
+app.put(
+  "/update-room/:id",
+  { preHandler: verifyAdminToken },
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name } = req.body;
+
+      // Validação do novo nome
+      if (!name || name.trim().length < 3) {
+        return res.status(400).send({
+          message: "O nome da sala deve ter pelo menos 3 caracteres.",
+        });
+      }
+
+      // Verificar se a sala existe
+      const existingRoom = await prisma.room.findUnique({
+        where: { id },
+      });
+
+      if (!existingRoom) {
+        return res.status(404).send({ message: "Sala não encontrada." });
+      }
+
+      // Atualizar a sala
+      const updatedRoom = await prisma.room.update({
+        where: { id },
+        data: { name: name.trim() },
+      });
+
+      return res
+        .status(200)
+        .send({ message: "Sala atualizada com sucesso!", room: updatedRoom });
+    } catch (error) {
+      console.error("Erro ao atualizar sala:", error);
+      return res.status(500).send({ message: "Internal server error" });
+    }
+  }
+);
+
+app.delete(
+  "/delete-room/:id",
+  { preHandler: verifyAdminToken },
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Verificar se a sala existe
+      const existingRoom = await prisma.room.findUnique({
+        where: { id },
+      });
+
+      if (!existingRoom) {
+        return res.status(404).send({ message: "Sala não encontrada." });
+      }
+
+      // Deletar a sala
+      await prisma.room.delete({
+        where: { id },
+      });
+
+      return res.status(200).send({ message: "Sala deletada com sucesso!" });
+    } catch (error) {
+      console.error("Erro ao deletar sala:", error);
+      return res.status(500).send({ message: "Internal server error" });
+    }
+  }
+);
