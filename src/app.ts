@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import validator from "validator";
 import fastify, {
   FastifyReply,
   FastifyRequest,
@@ -73,6 +74,26 @@ app.register(async function (app) {
   });
 });
 
+const verifyToken = (
+  req: FastifyRequest,
+  reply: FastifyReply,
+  done: HookHandlerDoneFunction
+) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(" ")[1];
+    if (!token) return reply.status(401).send({ message: "Token inválido" });
+
+    jsonwebtoken.verify(token, process.env.PRIVATE_KEY, (err, decoded) => {
+      if (err) return reply.status(403).send({ message: "Token inválido" });
+      req.user = (decoded as { user: FastifyRequest["user"] }).user;
+      done();
+    });
+  } catch (error) {
+    return reply.status(500).send({ message: "Falha na validação de token" });
+  }
+};
+
 app.get("/", (req, res) => {
   return res.status(200).send({ message: "salve!" });
 });
@@ -99,6 +120,77 @@ app.post("/user-register", async (req, res) => {
 
     const { password_hash, ...rest } = newUser;
     return res.status(201).send({ user: rest });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).send({ message: "Internal server error" });
+  }
+});
+// Rota de listagem de usuários
+app.get("/user-list", { preHandler: verifyToken }, async (req, res) => {
+  try {
+    const existingUsers = await prisma.user.findMany({
+      select: {
+        name: true,
+        email: true,
+        user_permission: true,
+      },
+    });
+
+    return res.status(201).send({ users: existingUsers });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).send({ message: "Internal server error" });
+  }
+});
+
+// Rota de resetar senha de usuário
+app.post("/reset-password", { preHandler: verifyToken }, async (req, res) => {
+  try {
+    const email = req.body?.email ?? "";
+    const newPassword = req.body?.newPassword ?? "";
+
+    const requestingUser = req.user;
+
+    // Verifica se o usuário logado tem permissão de ADMIN
+    if (requestingUser?.user_permission !== "ADMIN") {
+      return res
+        .status(403)
+        .send({ message: "Ação permitida apenas para administradores." });
+    }
+
+    // Validar os parâmetros
+    if (!email) {
+      return res.status(400).send({ message: "O email é obrigatório." });
+    }
+
+    // Buscar o usuário no banco de dados
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        user_permission: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).send({ message: "Usuário não encontrado." });
+    }
+    const saltRounds = 10;
+    const defaultPassword = "123456";
+
+    const hashedPassword = await bcrypt.hash(
+      newPassword || defaultPassword,
+      saltRounds
+    );
+
+    await prisma.user.update({
+      where: { email },
+      data: {
+        password_hash: hashedPassword,
+      },
+    });
+
+    return res.status(200).send({ message: "Senha resetada com sucesso 👍" });
   } catch (error) {
     console.error(error);
     return res.status(500).send({ message: "Internal server error" });
@@ -131,6 +223,127 @@ app.post("/user-login", async (req, res) => {
   }
 });
 
+// Rota de atualização de dados do usuário
+app.put("/user-update", { preHandler: verifyToken }, async (req, res) => {
+  try {
+    const requestingUser = req.user;
+    const { name = "", email = "", password = "" } = req.body;
+
+    // Validação dos parâmetros
+    if (!requestingUser?.id) {
+      return res.status(400).send({
+        message: "Usuário não localizado, tente fazer login novamente.",
+      });
+    }
+
+    // Construir o objeto de atualização
+    const updateData: any = {};
+    // Validação do campo 'name'
+    if (name && name.trim().length < 3) {
+      return res.status(400).send({
+        message: "O nome deve ter pelo menos 3 caracteres.",
+      });
+    }
+    if (name) updateData.name = name;
+
+    // Validação e verificação do campo 'email'
+    if (email) {
+      if (!validator.isEmail(email)) {
+        return res.status(400).send({
+          message: "E-mail inválido.",
+        });
+      }
+
+      // Verificar se o e-mail já existe no banco de dados
+      const existingUser = await prisma.user.findUnique({ where: { email } });
+      if (existingUser && existingUser.id !== requestingUser.id) {
+        return res.status(400).send({
+          message: "Esse e-mail já está em uso por outro usuário.",
+        });
+      }
+
+      updateData.email = email;
+    }
+
+    // Validação e criptografia da senha
+    if (password) {
+      if (password.length < 6) {
+        return res.status(400).send({
+          message: "A senha deve ter pelo menos 6 caracteres.",
+        });
+      }
+      const saltRounds = 10;
+      const hashedPassword = await bcrypt.hash(password, saltRounds);
+      updateData.password_hash = hashedPassword;
+    }
+
+    // Atualizar os dados no banco de dados
+    const updatedUser = await prisma.user.update({
+      where: { id: requestingUser.id },
+      data: updateData,
+    });
+
+    // Remover dados sensíveis da resposta
+    const { password_hash, ...rest } = updatedUser;
+
+    return res
+      .status(200)
+      .send({ message: "Dados atualizados com sucesso!", user: rest });
+  } catch (error) {
+    console.error("Erro ao atualizar dados do usuário:", error);
+    return res.status(500).send({ message: "Internal server error" });
+  }
+});
+
+app.put("/user-permission", { preHandler: verifyToken }, async (req, res) => {
+  const { email = "", permission = "" } = req.body;
+  const requestingUser = req.user;
+
+  console.log("token:", requestingUser?.user_permission);
+
+  // Verifica se o usuário logado tem permissão de ADMIN
+  if (requestingUser?.user_permission !== "ADMIN") {
+    return res
+      .status(403)
+      .send({ message: "Ação permitida apenas para administradores." });
+  }
+
+  // Validar os parâmetros
+  if (!email) {
+    return res.status(400).send({ message: "O email é obrigatório." });
+  }
+
+  if (!["COMMON", "ADMIN"].includes(permission)) {
+    return res.status(400).send({
+      message: "Permissão inválida. Valores permitidos: 'COMMON' ou 'ADMIN'.",
+    });
+  }
+
+  // Buscar o usuário no banco de dados
+  const user = await prisma.user.findUnique({
+    where: { email },
+    select: {
+      id: true,
+      user_permission: true,
+    },
+  });
+
+  if (!user) {
+    return res.status(404).send({ message: "Usuário não encontrado." });
+  }
+
+  await prisma.user.update({
+    where: { email },
+    data: {
+      user_permission: permission,
+    },
+  });
+
+  return res
+    .status(200)
+    .send({ message: "Permissão de usuário atualizada com sucesso 👍" });
+});
+
 // Verificação de Token com Tipagem Personalizada
 declare module "fastify" {
   interface FastifyRequest {
@@ -142,25 +355,6 @@ declare module "fastify" {
     };
   }
 }
-const verifyToken = (
-  req: FastifyRequest,
-  reply: FastifyReply,
-  done: HookHandlerDoneFunction
-) => {
-  try {
-    const authHeader = req.headers.authorization;
-    const token = authHeader && authHeader.split(" ")[1];
-    if (!token) return reply.status(401).send({ message: "Token inválido" });
-
-    jsonwebtoken.verify(token, process.env.PRIVATE_KEY, (err, decoded) => {
-      if (err) return reply.status(403).send({ message: "Token inválido" });
-      req.user = (decoded as { user: FastifyRequest["user"] }).user;
-      done();
-    });
-  } catch (error) {
-    return reply.status(500).send({ message: "Falha na validação de token" });
-  }
-};
 
 // Rotas protegidas
 app.get("/teste", { preHandler: verifyToken }, (req, res) =>
